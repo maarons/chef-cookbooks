@@ -22,13 +22,22 @@ action :run do
   if keys && keyring
     installed_keys = []
     if ::File.exist?(keyring)
-      cmd = Mixlib::ShellOut.new("LANG=C apt-key --keyring #{keyring} list")
+      cmd = Mixlib::ShellOut.new(
+        'apt-key',
+        '--keyring', keyring,
+        'adv',
+        '--list-keys',
+        '--fingerprint',
+        '--with-colons',
+        '--fixed-list-mode',
+        :env => {'LANG' => 'C'},
+      )
       cmd.run_command
       cmd.error!
       output = cmd.stdout.split("\n")
       Chef::Log.debug("apt-key output: #{output.join("\n")}")
-      installed_keys = output.select { |x| x.start_with?('pub') }.map do |x|
-        x[%r/pub.*\/(?<keyid>[A-Z0-9]*)/, 'keyid']
+      installed_keys = output.select { |x| x.start_with?('pub:') }.map do |x|
+        x.split(':')[4]
       end
     end
     Chef::Log.debug("Installed keys: #{installed_keys.join(', ')}")
