@@ -18,6 +18,7 @@ Attributes
 * node['fb_logrotate']['globals'][$CONFIG]
 * node['fb_logrotate']['configs'][$NAME]
 * node['fb_logrotate']['add_locking_to_logrotate']
+* node['fb_logrotate']['debug_log']
 
 Usage
 -----
@@ -59,11 +60,32 @@ MAC OS (BSD):
 Of these compresscmd, rotate and maxage defaults are specified via
 * node['fb_logrotate']['globals']['...']
 These maybe overridden by recipes for a particular platform.
+  compresscmd - Specifies which command to use to compress log files.
+                The default is pigz, except for CentOS 6 where pigz
+                is not available. You can specify this by
+                node['fb_logrotate']['globals']['compresscmd']
+  rotate - Log files are rotated count times before being removed or mailed
+           to the address specified in a mail directive. If count is 0,
+           old versions are removed rather than rotated. You can specify
+           this by node['fb_logrotate']['globals']['rotate']
+  maxage - Remove rotated logs older than <count> days. The age is only
+           checked if the logfile is to be rotated. The files are mailed to
+           the configured address if `maillast` and `mail` are configured.
+           You can specify this by node['fb_logrotate']['globals']['maxage']
+
 
 The following attributes are optional and not populated by default.
 These can be then later specified by setting the appropriate attribute
 and would get picked up by this logrotate recipe.
-  size - specified by node['fb_logrotate']['globals']['size']
+  size - Log files are rotated if they grow bigger than size bytes. 
+         If size is followed by k, the size is assumed to be in kilobytes.
+         If the M is used, the size is in megabytes, and if G is used,
+         the size is in gigabytes. So size 100, size 100k, size 100M
+         and size 100G are all valid.
+         specified by node['fb_logrotate']['globals']['size']
+  compressext - Specifies which extension to use on compressed logfiles,
+                if compression is enabled.
+                specified by node['fb_logrotate']['globals']['compressext']
 
 Overrides accepts the following booleans:
   copytruncate
@@ -166,3 +188,9 @@ the cronjob for logrotate (/etc/cron.daily/logrotate) with one that wraps the
 call to logrotate in a `flock` call to prevent logrotate runs from stepping on
 each other. This can be very useful, but be aware you are overwriting a file from
 the system package.
+
+### debug_log
+The `node['fb_logrotate']['debug_log']` feature is disabled by default. Setting
+this to true will cause verbose logrotate output to be captured in
+`/tmp/logrotate.debug.log`. This option is only available if
+the `add_locking_to_logrotate` feature is also enabled.

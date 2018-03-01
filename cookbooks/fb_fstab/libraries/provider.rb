@@ -59,18 +59,41 @@ module FB
                           mount_data['mount_point'])
         end
       end
-      # We cd into /dev/shm because otherwise mount will be dumb and
-      # change the device of 'foo' to be '/foo' if /foo happens to exist.
-      #
-      # I COULD call --no-canonicalize except that when /bin/mount calls
-      # /sbin/mount.tmpfs, it won't preserve that option, and then calls
-      # /bin/mount -i without it and it's canonicalized anyway. Further on
-      # other FS's --no-canonicalize may not be safe. THUS, we cd to a place
-      # that should be emptyish.
-      s = Mixlib::ShellOut.new(
-        "cd /dev/shm && /bin/mount #{mount_data['mount_point']}",
-      )
-      s.run_command
+      if node.systemd?
+        # If you use FUSE mounts, and you're running Chef from a systemd timer,
+        # the FUSE helpers will be killed after a chef run, which unmounts your
+        # filesystem, which is clearly not what you want. So we instead want to
+        # ask systemd to do the mount for us. The cleanest way to do that is to
+        # ask systemd what it's generated unit for that mount is and then
+        # "start" that unit.
+        #
+        # HOWEVER!!!! NOTE WELL!!!!
+        # If you don't do a `systemctl daemon-reload` after updating /etc/fstab,
+        # then this won't be gauranteed to mount the right thing, so we have
+        # that notify in the recipe
+        s = Mixlib::ShellOut.new(
+          "/bin/systemd-escape -p --suffix=mount #{mount_data['mount_point']}",
+        ).run_command
+        s.error!
+        mountunit = s.stdout.chomp.shellescape
+        s = Mixlib::ShellOut.new("/bin/systemctl start #{mountunit}")
+      else
+        # We cd into /dev/shm because otherwise mount will be dumb and
+        # change the device of 'foo' to be '/foo' if /foo happens to exist.
+        #
+        # I COULD call --no-canonicalize except that when /bin/mount calls
+        # /sbin/mount.tmpfs, it won't preserve that option, and then calls
+        # /bin/mount -i without it and it's canonicalized anyway. Further on
+        # other FS's --no-canonicalize may not be safe. THUS, we cd to a place
+        # that should be emptyish.
+        s = Mixlib::ShellOut.new(
+          "cd /dev/shm && /bin/mount #{mount_data['mount_point']}",
+        )
+      end
+
+      _run_command_flocked(s,
+                           mount_data['lock_file'],
+                           mount_data['mount_point'])
       if s.error? && mount_data['allow_mount_failure']
         Chef::Log.warn(
           "fb_fstab: Mounting #{mount_data['mount_point']} failed, but " +
@@ -82,10 +105,10 @@ module FB
       true
     end
 
-    def umount(mount_point)
+    def umount(mount_point, lock_file)
       Chef::Log.info("fb_fstab: Unmounting #{mount_point}")
       s = Mixlib::ShellOut.new("/bin/umount #{mount_point}")
-      s.run_command
+      _run_command_flocked(s, lock_file, mount_point)
       if s.error? && node['fb_fstab']['allow_lazy_umount']
         Chef::Log.warn("fb_fstab: #{s.stderr.chomp}")
         Chef::Log.warn(
@@ -93,22 +116,24 @@ module FB
           'trying lazy unmount.',
         )
         sl = Mixlib::ShellOut.new("/bin/umount -l #{mount_point}")
-        sl.run_command.error!
+        _run_command_flocked(sl, lock_file, mount_point)
       else
         s.error!
       end
       true
     end
 
-    def remount(mount_point, with_umount)
+    def remount(mount_point, with_umount, lock_file)
       Chef::Log.info("fb_fstab: Remounting #{mount_point}")
       if with_umount
+        Chef::Log.debug("fb_fstab: umount and mounting #{mount_point}")
         cmd = "/bin/umount #{mount_point}; /bin/mount #{mount_point}"
       else
+        Chef::Log.debug("fb_fstab: 'mount -o remount' on #{mount_point}")
         cmd = "/bin/mount -o remount #{mount_point}"
       end
       s = Mixlib::ShellOut.new(cmd)
-      s.run_command
+      _run_command_flocked(s, lock_file, mount_point)
       s.error!
     end
 
@@ -289,62 +314,86 @@ module FB
 
         if node['fb_fstab']['enable_unmount']
           converge_by "unmount #{mounted_data['mount']}" do
-            umount(mounted_data['mount'])
+            umount(mounted_data['mount'], mounted_data['lock_file'])
           end
         else
           Chef::Log.warn(
             "fb_fstab: Would umount #{mounted_data['device']} from " +
             "#{mounted_data['mount']}, but " +
-            'node["fb"]["fb_fstab"]["enable_unmount"] is false',
+            'node["fb_fstab"]["enable_unmount"] is false',
           )
           Chef::Log.debug("fb_fstab: #{mounted_data}")
         end
       end
     end
 
-    # Compare fstype's for identicalness
-    def compare_fstype(type1, type2)
-      if type1 == type2 ||
-         # Gluster is mounted as '-t gluster', but shows up as 'fuse.gluster'
-         # ... is this true for all FUSE FSes? Dunno...
-         type1.sub('fuse.gluster', 'gluster') ==
-         type2.sub('fuse.gluster', 'gluster')
-        return true
+    def _normalize_type(type)
+      if node['fb_fstab']['type_normalization_map'][type]
+        return node['fb_fstab']['type_normalization_map'][type]
       end
-      false
+      type
     end
 
     # We consider a filesystem type the "same" if they are identical or if
     # one is auto.
-    def fstype_sameish(type1, type2)
-      if compare_fstype(type1, type2) || [type1, type2].include?('auto')
-        return true
+    def compare_fstype(type1, type2)
+      type1 == type2 || _normalize_type(type1) == _normalize_type(type2)
+    end
+
+    def delete_ignored_opts!(tlist)
+      ignorable_opts_s = node['fb_fstab']['ignorable_opts'].select do |x|
+        x.is_a?(::String)
       end
-      false
+      ignorable_opts_r = node['fb_fstab']['ignorable_opts'].select do |x|
+        x.is_a?(::Regexp)
+      end
+      tlist.delete_if do |x|
+        ignorable_opts_s.include?(x) ||
+          ignorable_opts_r.any? do |regex|
+            x =~ regex
+          end
+      end
+    end
+
+    # This translates human-readable size mount options into their
+    # canonical bytes form. I.e. "size=4G" into "size=4194304"
+    #
+    # Assumes it's really a size opt - validate before calling!
+    def translate_size_opt(opt)
+      val = opt.split('=').last
+      mag = val[-1].downcase
+      mags = ['k', 'm', 'g', 't']
+      return opt unless mags.include?(mag)
+      num = val[0..-2].to_i
+      mags.each do |d|
+        num *= 1024
+        return "size=#{num}" if mag == d
+      end
+      fail RangeError "fb_fstab: Failed to translate #{opt}"
+    end
+
+    def canonicalize_opts(opts)
+      # ensure both are arrays
+      optsl = opts.is_a?(Array) ? opts.dup : opts.split(',')
+      # 'rw' is implied, so if no readability is specified, add it to both,
+      # so missing on one if them doesn't cause a false-negative
+      optsl << 'rw' unless optsl.include?('ro') || optsl.include?('rw')
+      delete_ignored_opts!(optsl)
+      optsl.map! do |x|
+        x.start_with?('size=') ? translate_size_opt(x) : x
+      end
+
+      # sort
+      optsl.sort
     end
 
     # Take opts in a variety of forms, and compare them intelligently
     def compare_opts(opts1, opts2)
-      # ensure both are arrays
-      opts1l = opts1.is_a?(Array) ? opts1.dup : opts1.split(',')
-      opts2l = opts2.is_a?(Array) ? opts2.dup : opts2.split(',')
-
-      # 'rw' is implied, so if no readability is specified, add it to both,
-      # so missing on one if them doesn't cause a false-negative
-      opts1l << 'rw' unless opts1l.include?('ro') || opts1l.include?('rw')
-      opts2l << 'rw' unless opts2l.include?('ro') || opts2l.include?('rw')
-
-      # NFS sometimes automatically adds addr=<server_ip> here automagically,
-      # which doesn't affect the mount, so don't compare it.
-      opts1l.delete_if { |x| x.start_with?('addr=') }
-      opts2l.delete_if { |x| x.start_with?('addr=') }
-
-      # Sort them both
-      opts1l.sort!
-      opts2l.sort!
+      c1 = canonicalize_opts(opts1)
+      c2 = canonicalize_opts(opts2)
 
       # Check that they're the same
-      opts1l == opts2l
+      c1 == c2
     end
 
     # Given a tmpfs desired mount `desired` check to see what it's status is;
@@ -376,6 +425,11 @@ module FB
               "fb_fstab: ... with different options #{desired['opts']} vs " +
               mounted['mount_options'].join(','),
             )
+            Chef::Log.info(
+              "fb_fstab: #{desired['mount_point']} is mounted with options " +
+              "#{canonicalize_opts(mounted['mount_options'])} instead of " +
+              canonicalize_opts(desired['opts']).to_s,
+            )
             return :remount
           end
         end
@@ -406,6 +460,11 @@ module FB
             Chef::Log.debug(
               "fb_fstab: ... with different options #{desired['opts']} vs " +
               mounted['mount_options'].join(','),
+            )
+            Chef::Log.info(
+              "fb_fstab: #{desired['mount_point']} is mounted with options " +
+              "#{canonicalize_opts(mounted['mount_options'])} instead of " +
+              canonicalize_opts(desired['opts']).to_s,
             )
             return :remount
           end
@@ -453,9 +512,9 @@ module FB
         # otherwise, we require them to be similar. This is because 'auto'
         # is meaningless without a physical device, so we don't want to allow
         # it to be the same.
-        if desired['type'] == mounted['fs_type'] ||
+        if compare_fstype(desired['type'], mounted['fs_type']) ||
            (desired['device'].start_with?('/') &&
-            fstype_sameish(desired['type'], mounted['fs_type']))
+            [desired['type'], mounted['fs_type']].include?('auto'))
           Chef::Log.debug(
             "fb_fstab: FS #{desired['device']} on #{desired['mount_point']}" +
             ' is currently mounted...',
@@ -467,6 +526,11 @@ module FB
             Chef::Log.debug(
               "fb_fstab: ... with different options #{desired['opts']} vs " +
               mounted['mount_options'].join(','),
+            )
+            Chef::Log.info(
+              "fb_fstab: #{desired['mount_point']} is mounted with options " +
+              "#{canonicalize_opts(mounted['mount_options'])} instead of " +
+              canonicalize_opts(desired['opts']).to_s,
             )
             return :remount
           end
@@ -574,7 +638,8 @@ module FB
             Chef::Log.debug("fb_fstab: #{base_msg} - remounting")
             converge_by "remount #{desired_data['mount_point']}" do
               remount(desired_data['mount_point'],
-                      desired_data['remount_with_umount'])
+                      desired_data['remount_with_umount'],
+                      desired_data['lock_file'])
             end
             # There's nothing after us in the loop at this point, but I'm being
             # explicit with the 'next' here so that we never accidentally
@@ -583,6 +648,23 @@ module FB
           else
             Chef::Log.warn("#{base_msg}, but remounts are not enabled")
           end
+        end
+      end
+    end
+
+    def _run_command_flocked(shellout, lock_file, mount_point)
+      if lock_file.nil?
+        return shellout.run_command
+      else
+        lock_fd = File.open(lock_file, 'a+')
+        unless lock_fd.flock(File::LOCK_EX | File::LOCK_NB)
+          fail IOError, "Couldn't grab lock at #{lock_file} for #{mount_point}"
+        end
+
+        begin
+          return shellout.run_command
+        ensure
+          lock_fd.flock(File::LOCK_UN)
         end
       end
     end

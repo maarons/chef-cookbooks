@@ -7,8 +7,6 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 #
 #
-require 'chef/mixin/shell_out'
-include Chef::Mixin::ShellOut
 
 module FB
   module FbSwap
@@ -73,9 +71,9 @@ module FB
 
     def self.get_current_swap_device_uuid(node)
       device = get_current_swap_device(node)
-      so = shell_out(
+      so = Mixlib::ShellOut.new(
         "/sbin/blkid --match-token TYPE=swap --output export #{device}",
-      )
+      ).run_command
       so.stdout.each_line do |line|
         if line =~ /UUID=(\S*)/
           return $1
