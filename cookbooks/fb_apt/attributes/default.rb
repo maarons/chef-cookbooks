@@ -19,10 +19,10 @@ elsif node.ubuntu?
   # package and merged into the main keyring, we list them here so they don't
   # get clobbered
   keys = {
-    '437D05B5' => nil,
-    'FBB75451' => nil,
-    'C0B21F32' => nil,
-    'EFE21092' => nil,
+    '40976EAF437D05B5' => nil,
+    '46181433FBB75451' => nil,
+    '3B4FE6ACC0B21F32' => nil,
+    'D94AA3F0EFE21092' => nil,
   }
 end
 
