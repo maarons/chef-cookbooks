@@ -27,6 +27,14 @@ class Chef
       return self.centos? && self['platform_version'].start_with?('5')
     end
 
+    def major_platform_version
+      return self['platform_version'].split('.')[0]
+    end
+
+    def fedora?
+      return self['platform'] == 'fedora'
+    end
+
     def debian?
       return self['platform'] == 'debian'
     end
@@ -47,12 +55,20 @@ class Chef
       return self['os'] == 'windows'
     end
 
-    def yocto?
-      return self['platform_family'] == 'yocto'
+    def aristaeos?
+      return self['platform'] == 'arista_eos'
+    end
+
+    def embedded?
+      return self.aristaeos?
     end
 
     def systemd?
       return ::File.directory?('/run/systemd/system')
+    end
+
+    def freebsd?
+      return self['platform_family'] == 'freebsd'
     end
 
     def virtual?
@@ -152,20 +168,10 @@ class Chef
             else
               fail "fb_util[node.fs_val]: Unknown FS val #{val}"
             end
-      if self['filesystem2']
-        fs = self['filesystem2']['by_mountpoint'][p]
-        # Some things like /dev/root and rootfs have same mount point...
-        if fs && fs[key]
-          return fs[key].to_f
-        end
-      else
-        self['filesystem'].to_hash.each_value do |fsm|
-          # Some things like /dev/root and rootfs have same mount point...
-          # centos7 reports label instead of mount point
-          if (fsm['mount'] == p || fsm['label'] == p) && fsm[key]
-            return fsm[key].to_f
-          end
-        end
+      fs = self['filesystem2']['by_mountpoint'][p]
+      # Some things like /dev/root and rootfs have same mount point...
+      if fs && fs[key]
+        return fs[key].to_f
       end
       Chef::Log.warn(
         "Tried to get filesystem information for '#{p}', but it is not a " +

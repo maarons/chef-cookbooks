@@ -90,6 +90,14 @@ template sysconfig do
   notifies :restart, 'service[apache]'
 end
 
+[moddir, sitesdir, confdir].each do |dir|
+  directory dir do
+    owner 'root'
+    group 'root'
+    mode '0755'
+  end
+end
+
 template "#{moddir}/fb_modules.conf" do
   not_if { node.centos6? }
   owner 'root'
@@ -102,14 +110,14 @@ template "#{sitesdir}/fb_sites.conf" do
   owner 'root'
   group 'root'
   mode '0644'
-  notifies :restart, 'service[apache]'
+  notifies :reload, 'service[apache]'
 end
 
 template "#{confdir}/fb_apache.conf" do
   owner 'root'
   group 'root'
   mode '0644'
-  notifies :restart, 'service[apache]'
+  notifies :reload, 'service[apache]'
 end
 
 service 'apache' do

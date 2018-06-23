@@ -137,41 +137,15 @@ module FB
       s.error!
     end
 
-    def get_base_mounts
-      mounts = {}
-      FB::Fstab.load_base_fstab.each_line do |line|
-        next if line.strip.empty?
-        bits = line.split
-        begin
-          real_dev = canonicalize_device(bits[0])
-        rescue RuntimeError => e
-          # In the event that a label or UUID doesn't exist anymore,
-          # we'll want to let users set allow_mount_failure, if they want,
-          # so don't crash... and if they haven't overridden it, we'll fail
-          # later
-          if node['fb_fstab']['mounts'].to_hash.any? do |_key, val|
-               val['device'] == bits[0]
-             end
-            real_dev = bits[0]
-          else
-            raise e
-          end
-        end
-        mounts[real_dev] = {
-          'mount_point' => bits[1],
-          'type' => bits[2],
-          'opts' => bits[3],
-        }
-      end
-      Chef::Log.debug("fb_fstab: base mounts: #{mounts}")
-      mounts
+    def get_unmasked_base_mounts(format)
+      FB::Fstab.get_unmasked_base_mounts(format, node)
     end
 
     def canonicalize_device(device)
       FB::Fstab.canonicalize_device(device, node)
     end
 
-    # Given a *mounted* device from node['filesystem'] in `mounted_data`, check
+    # Given a *mounted* device from node['filesystem2'] in `mounted_data`, check
     # to see if we want to keep it. It looks in `desired_mounts` (an export of
     # node['fb_fstab']['mounts'] as well as `base_mounts` (a hash
     # representation of the saved OS mounts file).
@@ -249,7 +223,8 @@ module FB
         node['fb_fstab']['umount_ignores']['mount_point_prefixes'].dup
       fstypes_to_skip = node['fb_fstab']['umount_ignores']['types'].dup
 
-      base_mounts = get_base_mounts
+      base_mounts = get_unmasked_base_mounts(:hash)
+
       # we're going to iterate over specified mounts a lot, lets dump it
       desired_mounts = node['fb_fstab']['mounts'].to_hash
 
@@ -436,7 +411,7 @@ module FB
       end
       # OK, if that's not the case, we don't have the same device, which
       # is OK. Find out if we have something mounted at the same spot, and
-      # get its device name so we can find it's entry in node['filesystem']
+      # get its device name so we can find it's entry in node['filesystem2']
       if node['filesystem2']['by_mountpoint'][desired['mount_point']]
         # If we are here the mountpoints are the same...
         mounted =
