@@ -13,7 +13,7 @@
 #
 
 case node['platform_family']
-when 'rhel', 'suse'
+when 'fedora', 'rhel', 'suse'
   pkg = 'tmpwatch'
   config = '/etc/cron.daily/tmpwatch'
   config_src = 'tmpwatch.erb'
