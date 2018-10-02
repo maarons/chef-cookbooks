@@ -102,6 +102,19 @@ whyrun_safe_ruby_block 'initialize_grub_locations' do
         module_path = "#{os_part}/usr/lib/grub/#{node['kernel']['machine']}-efi"
       end
       node.default['fb_grub']['_grub2_module_path'] = module_path
+
+      # Until grub2 learns how to deal with zstd compressed filesystems
+      unless (node['filesystem2']['by_mountpoint']['/']['mount_options'] & [
+        'compress=zstd',
+        'compress-force=zstd',
+      ]).empty?
+        node.default['fb_grub']['_grub2_copy_path'] = node['fb_grub'][
+          '_grub2_module_path']
+        node.default['fb_grub']['_module_label'] = node['fb_grub'][
+          '_root_label']
+        node.default['fb_grub']['_grub2_module_path'] = node['fb_grub'][
+          'path_prefix']
+      end
     end
     node.default['fb_grub']['_decided_boot_disk'] = boot_disk
   end
@@ -127,13 +140,11 @@ execute 'grub-install' do
   action :nothing
 end
 
-directory 'efi_vendor_dir' do
+directory 'efi_vendor_dir' do # ~FB024 mode is controlled by mount options
   only_if { node.efi? }
   path lazy { node['fb_grub']['_efi_vendor_dir'] }
   owner 'root'
   group 'root'
-  # this is on a FAT filesystem that doesn't support proper permissions
-  mode '0700'
 end
 
 # GRUB 1
@@ -203,6 +214,21 @@ end
         'initrd_statement' => efi_command ? 'initrdefi' : 'initrd',
       },
     )
+  end
+end
+
+# grub2 cannot read / if it's compressed with zstd, so hack around it
+node['fb_grub']['tboot']['_grub_modules'].each do |mod_file|
+  remote_file "Copy #{mod_file} file for grub" do
+    only_if do
+      node['fb_grub']['tboot']['enable'] &&
+      !node['fb_grub']['_grub2_copy_path'].nil?
+    end
+    path "/boot/#{mod_file}"
+    source lazy { "file://#{node['fb_grub']['_grub2_copy_path']}/#{mod_file}" }
+    owner 'root'
+    group 'root'
+    mode '0644'
   end
 end
 

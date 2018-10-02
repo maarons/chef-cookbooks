@@ -24,14 +24,7 @@ end
 
 # assume linux from here onwards
 
-pkgs = ['logrotate']
-unless node.centos6?
-  pkgs << 'pigz'
-end
-
-package pkgs do
-  action :upgrade
-end
+include_recipe 'fb_logrotate::packages'
 
 whyrun_safe_ruby_block 'munge logrotate configs' do
   block do
@@ -52,6 +45,33 @@ whyrun_safe_ruby_block 'munge logrotate configs' do
       end
       if time
         node.default['fb_logrotate']['configs'][name]['time'] = time
+      end
+    end
+  end
+end
+
+whyrun_safe_ruby_block 'validate logrotate configs' do
+  block do
+    files = []
+    node['fb_logrotate']['configs'].to_hash.each_value do |block|
+      files += block['files']
+    end
+    if files.uniq.length < files.length
+      fail 'fb_logrotate: there are duplicate logrotate configs!'
+    else
+      dfiles = []
+      tocheck = []
+      files.each do |f|
+        if f.end_with?('*')
+          dfiles << ::File.dirname(f)
+        else
+          tocheck << f
+        end
+      end
+      tocheck.each do |f|
+        if dfiles.include?(::File.dirname(f))
+          fail "fb_logrotate: there is an overlapping logrotate config for #{f}"
+        end
       end
     end
   end

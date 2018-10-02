@@ -37,6 +37,9 @@ compressext <%= node['fb_logrotate']['globals']['compressext'] %>
   <%=      k %>
     <%=    block['overrides'][k] %>
   endscript
+<%       else -%>
+<%         Chef::Log.warn("fb_logrotate:[#{name}]: \
+Invalid logrotate config option #{k}") -%>
 <%       end -%>
 <%     end -%>
 <%   end -%>

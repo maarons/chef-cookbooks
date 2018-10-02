@@ -12,7 +12,4 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 #
 
-package 'rsync' do
-  not_if { node.macosx? || node.aristaeos? } # provided by Xcode
-  action :upgrade
-end
+include_recipe 'fb_rsync::packages'
