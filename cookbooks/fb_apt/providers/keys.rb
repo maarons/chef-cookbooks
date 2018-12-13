@@ -54,7 +54,7 @@ action :run do
           end
         elsif keyserver
           execute "fetch and add key for keyid #{keyid} to APT" do
-            command "apt-key adv --keyserver #{keyserver} --recv #{keyid}"
+            command "apt-key adv --no-tty --keyserver #{keyserver} --recv #{keyid}"
           end
         else
           fail "Cannot fetch key for #{keyid} as keyserver is not defined"
