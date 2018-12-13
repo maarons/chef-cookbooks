@@ -12,26 +12,21 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 #
 
+include_recipe 'fb_tmpclean::packages'
+
 case node['platform_family']
 when 'fedora', 'rhel', 'suse'
-  pkg = 'tmpwatch'
   config = '/etc/cron.daily/tmpwatch'
   config_src = 'tmpwatch.erb'
 when 'debian'
-  pkg = 'tmpreaper'
   config = '/etc/cron.daily/tmpreaper'
   config_src = 'tmpreaper.erb'
 when 'mac_os_x'
-  pkg = 'tmpreaper'
   config = '/usr/bin/fb_tmpreaper'
   config_src = 'tmpreaper.erb'
 else
   fail "Unsupported platform_family #{node['platform_family']}, cannot" +
     'continue'
-end
-
-package pkg do
-  action :upgrade
 end
 
 template config do

@@ -26,6 +26,12 @@ your node.
 * `node.centos7?`
     Is CentOS7
 
+* `node.fedora?`
+    Is Fedora
+
+* `node.redhat?`
+    Is Redhat Enterprise Linux
+
 * `node.debian?`
     Is Debian
 
@@ -142,6 +148,15 @@ your node.
    Wrapper around `node.in_flexible_shard?` that sets `shard_size` to 100.
    Shards are 0-indexed, so the valid shards are 0-99. As such, shard `N` is
    approximately `(N+1)%`, so shard 0 is approximately 1%.
+
+* `node.firstboot_any_phase?`
+   Returns `true` if we're in any of firstboot steps
+
+* `node.firstboot_os?`
+   Shortcut for `node['fb_init']['firstboot_os']`
+
+* `node.firstboot_tier?`
+   Shortcut for `node['fb_init']['firstboot_tier']`
 
 ### FB::Helpers
 The following methods are available:

@@ -1,10 +1,10 @@
 #
-# Cookbook Name:: fb_hdparm
-# Recipe:: default
+# Cookbook Name:: fb_postfix
+# Recipe:: package
 #
 # vim: syntax=ruby:expandtab:shiftwidth=2:softtabstop=2:tabstop=2
 #
-# Copyright (c) 2016-present, Facebook, Inc.
+# Copyright (c) 2011-present, Facebook, Inc.
 # All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
@@ -12,4 +12,6 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 #
 
-include_recipe 'fb_hdparm::packages'
+package 'postfix' do
+  action :upgrade
+end

@@ -1,8 +1,8 @@
 #
-# Cookbook Name:: fb_hdparm
-# Recipe:: default
-#
 # vim: syntax=ruby:expandtab:shiftwidth=2:softtabstop=2:tabstop=2
+#
+# Cookbook Name:: fb_tmpwatch
+# Recipe:: packages
 #
 # Copyright (c) 2016-present, Facebook, Inc.
 # All rights reserved.
@@ -12,4 +12,18 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 #
 
-include_recipe 'fb_hdparm::packages'
+case node['platform_family']
+when 'rhel'
+  pkg = 'tmpwatch'
+when 'debian'
+  pkg = 'tmpreaper'
+when 'mac_os_x'
+  pkg = 'tmpreaper'
+else
+  fail "Unsupported platform_family #{node['platform_family']}, cannot" +
+    'continue'
+end
+
+package pkg do
+  action :upgrade
+end

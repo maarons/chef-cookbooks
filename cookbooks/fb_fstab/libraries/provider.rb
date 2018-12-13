@@ -58,6 +58,19 @@ module FB
           FileUtils.chown(mount_data['mp_owner'], mount_data['mp_group'],
                           mount_data['mount_point'])
         end
+        if mount_data['mp_immutable']
+          readme = File.join(mount_data['mount_point'], 'README.txt')
+          readme_body = 'This directory was created by chef to be an ' +
+            'immutable mountpoint.  If you can see this, ' +
+            "the mount is missing!\n"
+          File.open(readme, 'w') do |f| # ~FB030
+            f.write(readme_body)
+          end
+          s = Mixlib::ShellOut.new(
+            "/bin/chattr +i #{mount_data['mount_point']}",
+          ).run_command
+          s.error!
+        end
       end
       if node.systemd?
         # If you use FUSE mounts, and you're running Chef from a systemd timer,
@@ -451,7 +464,7 @@ module FB
         )
         return :conflict
       end
-      return :missing
+      :missing
     end
 
     # Given a desired mount `desired` check to see what it's status is;
@@ -627,6 +640,7 @@ module FB
       end
     end
 
+    # rubocop:disable Style/RedundantReturn
     def _run_command_flocked(shellout, lock_file, mount_point)
       if lock_file.nil?
         return shellout.run_command
@@ -643,5 +657,6 @@ module FB
         end
       end
     end
+    # rubocop:enable Style/RedundantReturn
   end
 end

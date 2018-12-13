@@ -3,10 +3,9 @@
 
 [Unit]
 Description=Run scheduled task <%= @conf['name'] %>
-After=network.target
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=timers.target
 
 [Timer]
 OnCalendar=<%= @conf['calendar'] %>
