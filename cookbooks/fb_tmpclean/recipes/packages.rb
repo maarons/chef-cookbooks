@@ -13,7 +13,7 @@
 #
 
 case node['platform_family']
-when 'rhel'
+when 'fedora', 'rhel', 'suse'
   pkg = 'tmpwatch'
 when 'debian'
   pkg = 'tmpreaper'
